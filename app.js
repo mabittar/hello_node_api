@@ -1,56 +1,77 @@
 const express = require("express");
 const { randomUUID } = require("crypto")
+const redis = require('redis');
 
+// create and connect redis client
+let redisClient;
+
+(async () => {
+    redisClient = redis.createClient();
+
+    redisClient.on("error", (error) => console.error(`Error : ${error}`));
+
+    await redisClient.connect();
+})();
+
+// create app instance
 const app = express();
 
 app.use(express.json())
 
-const products = [];
-
-
-app.get("/products", (request, response) => {
-    return response.json(products)
+app.get("/products", async (request, response) => {
+    const productIds = await redisClient.keys('*')
+    return response.json(productIds)
 })
 
 
-app.post("/products", (request, response) => {
+app.post("/products", async (request, response) => {
     const body = request.body;
     console.log(body);
 
     const { name, price } = body;
+    const productId = randomUUID();
     const product = {
         name,
         price,
-        id: randomUUID(),
 
     };
-
-    products.push(product)
+    await redisClient.set(`${productId}`, JSON.stringify(product));
+    // products.push(product)
     return response.json(product)
 });
 
 
-app.get("/products/:id", (request, response) => {
+app.get("/products/:id", async (request, response) => {
     const { id } = request.params;
-    const product = products.find(product => product.id === id);
-    return response.json(product)
-
+    let result;
+    const product = await redisClient.get(id)
+    if (product) {
+        result = JSON.parse(product)
+    }
+    return response.send({
+        data: result,
+    });
 });
 
 
-app.put("/products/:id", (request, response) => {
+app.put("/products/:id", async (request, response) => {
     const { id } = request.params;
     const { name, price } = request.body;
+    let result;
 
-    const productIndex = products.findIndex(product => product.id == id);
+    const product = await redisClient.get(id)
+    if (product) {
+        result = JSON.parse(product);
+        product = {
+            name,
+            price,
 
-
-    products[productIndex] = {
-        ...products[productIndex],
-        name,
-        price,
+        };
+        await redisClient.setex(`${id}`, JSON.stringify(product));
     }
-    return response.json(products[productIndex]);
+
+
+    return response.send(product);
 
 });
 
